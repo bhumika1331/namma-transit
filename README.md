@@ -34,7 +34,7 @@ by hand for a group is the problem this project removes.
   keeps that attribution.
 - Fare charts (BMTC ordinary and Vajra stage fares, Namma Metro distance
   slabs, Bengaluru auto meter rates) live as versioned JSON in
-  `backend/data/fares/` with their effective dates.
+  `backend/internal/fare/charts/` with their effective dates and are embedded in the binary.
 
 ## Disclaimer
 

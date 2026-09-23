@@ -1,0 +1,17 @@
+{
+  "class": "ordinary",
+  "effective_from": "2025-01-05",
+  "source": "https://mybmtc.karnataka.gov.in/storage/pdf-files/ordinaryfarechart.pdf",
+  "stage_km": 2,
+  "slabs": [
+    {"max_km": 2, "adult_paise": 600},
+    {"max_km": 4, "adult_paise": 1200},
+    {"max_km": 6, "adult_paise": 1800},
+    {"max_km": 10, "adult_paise": 2300},
+    {"max_km": 14, "adult_paise": 2400},
+    {"max_km": 20, "adult_paise": 2800},
+    {"max_km": 40, "adult_paise": 3000},
+    {"max_km": 50, "adult_paise": 3200}
+  ],
+  "daily_pass_paise": 8000
+}

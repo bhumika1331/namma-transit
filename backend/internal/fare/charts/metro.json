@@ -1,0 +1,18 @@
+{
+  "class": "metro",
+  "effective_from": "2025-02-09",
+  "source": "https://english.bmrc.co.in/fare-rules/",
+  "slabs": [
+    {"max_km": 2, "adult_paise": 1000},
+    {"max_km": 4, "adult_paise": 2000},
+    {"max_km": 6, "adult_paise": 3000},
+    {"max_km": 8, "adult_paise": 4000},
+    {"max_km": 10, "adult_paise": 5000},
+    {"max_km": 15, "adult_paise": 6000},
+    {"max_km": 20, "adult_paise": 7000},
+    {"max_km": 25, "adult_paise": 8000},
+    {"max_km": 1000, "adult_paise": 9000}
+  ],
+  "smart_card_peak_discount_pct": 5,
+  "smart_card_offpeak_discount_pct": 10
+}

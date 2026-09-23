@@ -1,0 +1,20 @@
+{
+  "class": "vajra",
+  "effective_from": "2025-01-05",
+  "source": "https://mybmtc.karnataka.gov.in/storage/pdf-files/vajrafarechart05-01-2025%281%29%281%29.pdf",
+  "stage_km": 2,
+  "slabs": [
+    {"max_km": 2, "adult_paise": 1500},
+    {"max_km": 4, "adult_paise": 2000},
+    {"max_km": 6, "adult_paise": 2500},
+    {"max_km": 10, "adult_paise": 3000},
+    {"max_km": 14, "adult_paise": 3500},
+    {"max_km": 20, "adult_paise": 4000},
+    {"max_km": 26, "adult_paise": 4500},
+    {"max_km": 32, "adult_paise": 5000},
+    {"max_km": 38, "adult_paise": 5500},
+    {"max_km": 44, "adult_paise": 6000},
+    {"max_km": 50, "adult_paise": 6500}
+  ],
+  "daily_pass_paise": 14000
+}
