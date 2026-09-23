@@ -29,6 +29,29 @@ type Query struct {
 	Day     domain.DayKind
 	// MaxRides bounds the number of vehicle legs (transfers + 1). Default 2.
 	MaxRides int
+	// Modes restricts which route modes may be ridden; nil allows all. The
+	// planner uses this to surface a bus-only alternative that the metro
+	// would otherwise dominate.
+	Modes []domain.Mode
+	// ExcludeClasses drops routes of these service classes entirely.
+	ExcludeClasses []domain.ServiceClass
+}
+
+func (q Query) allows(r *domain.Route) bool {
+	for _, c := range q.ExcludeClasses {
+		if r.Class == c {
+			return false
+		}
+	}
+	if len(q.Modes) == 0 {
+		return true
+	}
+	for _, x := range q.Modes {
+		if x == r.Mode {
+			return true
+		}
+	}
+	return false
 }
 
 // LegKind distinguishes walking from riding.
@@ -164,6 +187,9 @@ func (r *Router) Plan(q Query) []Journey {
 
 		for _, rid := range routes {
 			route := &n.Routes[rid]
+			if !q.allows(route) {
+				continue
+			}
 			var b timeprovider.Boarding
 			hasB := false
 			var bStop domain.StopID
