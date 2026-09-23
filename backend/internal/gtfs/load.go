@@ -198,6 +198,7 @@ func Load(path string, opts Options) (*Dataset, error) {
 		routes:  routes,
 		stopIdx: map[string]domain.StopID{},
 		patIdx:  map[string]int{},
+		patSeq:  map[string]int{},
 	}
 	// Deterministic order: iterate trips sorted by id.
 	tripIDs := make([]string, 0, len(events))
@@ -229,6 +230,7 @@ type builder struct {
 	routes  map[string]gRoute
 	stopIdx map[string]domain.StopID // stop key -> domain id
 	patIdx  map[string]int           // pattern key -> index into ds.routes
+	patSeq  map[string]int           // "route/dir" -> patterns seen, for unique SourceIDs
 	// metro: station parent -> stops on each line, for interchange footpaths
 	station map[string][]domain.StopID
 }
@@ -316,9 +318,15 @@ func (b *builder) addTrip(t gTrip, days domain.DayMask, evs []event) error {
 	if !ok {
 		pi = len(b.ds.routes)
 		b.patIdx[key.String()] = pi
+		base := t.route + "/" + string('0'+t.dir)
+		b.patSeq[base]++
+		sourceID := base
+		if n := b.patSeq[base]; n > 1 {
+			sourceID = fmt.Sprintf("%s#%d", base, n)
+		}
 		r := domain.Route{
 			ID:        domain.RouteID(pi),
-			SourceID:  t.route + "/" + string('0'+t.dir),
+			SourceID:  sourceID,
 			ShortName: gr.short,
 			Headsign:  t.headsign,
 			Stops:     ids,
