@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package transit.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service MetaService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {}
+
+message DatasetInfo {
+  // "bmtc" or "bmrcl".
+  string name = 1;
+  // "gtfs" (community feed) or "scrape" (our scraper).
+  string source = 2;
+  google.protobuf.Timestamp loaded_at = 3;
+  int32 stops = 4;
+  int32 routes = 5;
+  int32 trips = 6;
+}
+
+message HealthResponse {
+  string version = 1;
+  repeated DatasetInfo datasets = 2;
+  google.protobuf.Timestamp fares_updated_at = 3;
+}

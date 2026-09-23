@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package transit.v1;
+
+import "transit/v1/common.proto";
+
+// Autocomplete for origin and destination inputs.
+service PlaceService {
+  rpc Suggest(SuggestRequest) returns (SuggestResponse);
+}
+
+message SuggestRequest {
+  string query = 1;
+  // Optional location to bias ranking towards.
+  LatLng bias = 2;
+  // Max results; server clamps to a small number.
+  int32 limit = 3;
+}
+
+message SuggestResponse {
+  repeated Place places = 1;
+  // True when results came from an external geocoder rather than stop names.
+  bool from_geocoder = 2;
+}

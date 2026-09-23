@@ -1,0 +1,32 @@
+version: '3'
+
+tasks:
+  gen:
+    desc: Lint protos and regenerate Go + TypeScript code
+    cmds:
+      - buf lint
+      - buf generate
+
+  dev:api:
+    desc: Run the Go Connect server on :8080
+    dir: backend
+    cmds:
+      - go run ./cmd/server
+
+  dev:web:
+    desc: Run the Next.js dev server
+    dir: web
+    cmds:
+      - npm run dev
+
+  test:
+    desc: Run backend tests
+    dir: backend
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Lint protos and Go
+    cmds:
+      - buf lint
+      - cd backend && go vet ./...

@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package transit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "transit/v1/common.proto";
+
+service TripService {
+  rpc PlanTrip(PlanTripRequest) returns (PlanTripResponse);
+}
+
+// Who is travelling. Women ride ORDINARY and METRO_FEEDER buses free (Shakti).
+message Party {
+  int32 total = 1;
+  int32 women = 2;
+  // Riders holding a Namma Metro smart card / NCMC (5-10% off metro fare).
+  int32 smart_card_holders = 3;
+}
+
+message PlanTripRequest {
+  Location origin = 1;
+  Location destination = 2;
+  // Departure time; server uses now (IST) when absent.
+  google.protobuf.Timestamp departure = 3;
+  Party party = 4;
+  int32 max_itineraries = 5;
+}
+
+message Leg {
+  LegMode mode = 1;
+  ServiceClass service_class = 2;
+  // Bus route number or metro line name.
+  string route_short_name = 3;
+  string headsign = 4;
+  // Hex colour for metro lines; empty for buses.
+  string line_color = 5;
+  Place from = 6;
+  Place to = 7;
+  repeated Place intermediate_stops = 8;
+  google.protobuf.Timestamp depart = 9;
+  google.protobuf.Timestamp arrive = 10;
+  int32 duration_min = 11;
+  double distance_km = 12;
+  // Non-zero when the leg is headway-based rather than scheduled.
+  int32 headway_min = 13;
+  Money fare_per_person = 14;
+  // BMTC fare stages traversed; 0 for metro and walking.
+  int32 stage_count = 15;
+  bool women_free = 16;
+}
+
+message ClassCost {
+  ServiceClass service_class = 1;
+  int32 paying_riders = 2;
+  Money per_person = 3;
+  Money group = 4;
+}
+
+message CostBreakdown {
+  Money group_total = 1;
+  Money per_person_woman = 2;
+  Money per_person_other = 3;
+  repeated ClassCost by_class = 4;
+  Money smart_card_saving = 5;
+  // Set when a BMTC daily pass would be cheaper than the summed bus legs.
+  bool daily_pass_hint = 6;
+  Money daily_pass_group_total = 7;
+}
+
+enum ItineraryKind {
+  ITINERARY_KIND_UNSPECIFIED = 0;
+  ITINERARY_KIND_METRO_ONLY = 1;
+  ITINERARY_KIND_DIRECT_BUS = 2;
+  ITINERARY_KIND_BUS_METRO = 3;
+  ITINERARY_KIND_BUS_BUS = 4;
+}
+
+message Itinerary {
+  string id = 1;
+  ItineraryKind kind = 2;
+  repeated Leg legs = 3;
+  int32 total_min = 4;
+  int32 walk_min = 5;
+  int32 transfers = 6;
+  google.protobuf.Timestamp depart = 7;
+  google.protobuf.Timestamp arrive = 8;
+  CostBreakdown cost = 9;
+  // UI hints such as "fastest", "cheapest", "ac".
+  repeated string tags = 10;
+}
+
+// What the same group would pay taking metered autos.
+message AutoBaseline {
+  int32 autos = 1;
+  double road_km = 2;
+  Money group_total = 3;
+  int32 est_min = 4;
+}
+
+message PlanTripResponse {
+  repeated Itinerary itineraries = 1;
+  AutoBaseline auto = 2;
+  // Identifies the network + fare data the answer was computed from.
+  string data_version = 3;
+  repeated string warnings = 4;
+}

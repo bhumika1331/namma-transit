@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package transit.v1;
+
+// Which fare chart a leg is priced on.
+enum ServiceClass {
+  SERVICE_CLASS_UNSPECIFIED = 0;
+  // BMTC non-AC "Bengaluru Sarige". Free for women under Shakti.
+  SERVICE_CLASS_ORDINARY = 1;
+  // BMTC AC Volvo (route numbers prefixed "V-").
+  SERVICE_CLASS_VAJRA = 2;
+  // BMTC airport AC service (route numbers prefixed "KIA"/"VAYU"). Route-fixed fare.
+  SERVICE_CLASS_VAYU_VAJRA = 3;
+  // BMTC metro feeder (route numbers prefixed "MF-"). Ordinary chart, Shakti applies.
+  SERVICE_CLASS_METRO_FEEDER = 4;
+  // Namma Metro (BMRCL). Distance-slab fare.
+  SERVICE_CLASS_METRO = 5;
+}
+
+enum LegMode {
+  LEG_MODE_UNSPECIFIED = 0;
+  LEG_MODE_WALK = 1;
+  LEG_MODE_BUS = 2;
+  LEG_MODE_METRO_RAIL = 3;
+}
+
+enum PlaceKind {
+  PLACE_KIND_UNSPECIFIED = 0;
+  PLACE_KIND_BUS_STOP = 1;
+  PLACE_KIND_METRO_STATION = 2;
+  // A point resolved by a geocoder rather than a transit stop.
+  PLACE_KIND_GEOCODED = 3;
+}
+
+message LatLng {
+  double lat = 1;
+  double lng = 2;
+}
+
+message Place {
+  // Stable id: "bus:<stop_id>", "metro:<station_id>" or "geo:<hash>".
+  string id = 1;
+  string name = 2;
+  PlaceKind kind = 3;
+  LatLng loc = 4;
+  // Secondary line for UI, e.g. locality or metro line name.
+  string sub_label = 5;
+}
+
+// Either a known place id or a raw coordinate.
+message Location {
+  oneof ref {
+    string place_id = 1;
+    LatLng lat_lng = 2;
+  }
+}
+
+// Indian rupees as integer paise to avoid float rounding.
+message Money {
+  int32 paise = 1;
+}
