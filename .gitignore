@@ -1,0 +1,33 @@
+# Go
+backend/bin/
+backend/**/*.test
+backend/coverage.out
+
+# Generated code is committed (see buf.gen.yaml); tooling caches are not
+.buf-cache/
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/.vercel/
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# Data artifacts (built by scraper / loadgtfs; published as release assets)
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
+backend/data/gtfs/*.zip
+backend/data/raw/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
