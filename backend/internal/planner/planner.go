@@ -221,7 +221,12 @@ func (p *Planner) itinerary(j raptor.Journey, dayStart time.Time, day domain.Day
 			buses++
 			lastWasMetro = false
 		}
-		fareLegs = append(fareLegs, fare.Leg{Class: route.Class, Km: km, Peak: p.Time.Profile.IsPeak(l.Dep, day)})
+		fareLegs = append(fareLegs, fare.Leg{
+			Class:  route.Class,
+			Km:     km,
+			Stages: route.StagesBetween(l.FromPos, l.ToPos),
+			Peak:   p.Time.Profile.IsPeak(l.Dep, day),
+		})
 		fareLegForProto = append(fareLegForProto, len(fareLegs)-1)
 	}
 	it.WalkMin = walk.Minutes()

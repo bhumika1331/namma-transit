@@ -23,6 +23,8 @@ var schema string
 // Store wraps one database file.
 type Store struct {
 	db *sql.DB
+	// runID tags archived raw responses with the current scrape run.
+	runID sql.NullInt64
 }
 
 // Open opens (creating if needed) the database and applies the schema.
@@ -79,6 +81,25 @@ func (s *Store) ReplaceDataset(ctx context.Context, src network.Source) error {
 
 	ds := src.Name()
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Keep fare stage boundaries across a core re-scrape: snapshot by route
+	// source id and re-apply below.
+	savedStages := map[string][]int{}
+	rows, err := tx.QueryContext(ctx, `SELECT r.source_id, b.stop_pos FROM fare_stage_boundaries b JOIN routes r ON r.id=b.route_id WHERE r.dataset=? ORDER BY r.source_id, b.stage_no`, ds)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var sid string
+		var pos int
+		if err := rows.Scan(&sid, &pos); err != nil {
+			rows.Close()
+			return err
+		}
+		savedStages[sid] = append(savedStages[sid], pos)
+	}
+	rows.Close()
+
 	for _, q := range []string{
 		`DELETE FROM footpaths WHERE from_stop IN (SELECT id FROM stops WHERE dataset=?)`,
 		`DELETE FROM trips WHERE route_id IN (SELECT id FROM routes WHERE dataset=?)`,
@@ -123,12 +144,25 @@ func (s *Store) ReplaceDataset(ctx context.Context, src network.Source) error {
 	if err != nil {
 		return err
 	}
+	insStage, err := tx.PrepareContext(ctx, `INSERT INTO fare_stage_boundaries(route_id,stage_no,stop_pos,derived_at) VALUES(?,?,?,?)`)
+	if err != nil {
+		return err
+	}
 	for _, r := range src.Routes() {
 		res, err := insRoute.ExecContext(ctx, ds, src.Source(), r.SourceID, r.ShortName, r.Headsign, r.Mode, r.Class, r.LineColor, now)
 		if err != nil {
 			return fmt.Errorf("route %s: %w", r.SourceID, err)
 		}
 		rid, _ := res.LastInsertId()
+		starts := r.StageStarts
+		if len(starts) == 0 {
+			starts = savedStages[r.SourceID]
+		}
+		for i, pos := range starts {
+			if _, err := insStage.ExecContext(ctx, rid, i+2, pos, now); err != nil {
+				return err
+			}
+		}
 		for i, st := range r.Stops {
 			var km float64
 			if i < len(r.DistKm) {
@@ -313,6 +347,25 @@ func (s *Store) LoadDataset(ctx context.Context, name string) (*Dataset, error) 
 		}
 		r := &d.routes[routeIdx[rid]]
 		r.Headways = append(r.Headways, h)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = s.db.QueryContext(ctx, `SELECT b.route_id, b.stop_pos FROM fare_stage_boundaries b JOIN routes r ON r.id=b.route_id WHERE r.dataset=? ORDER BY b.route_id, b.stage_no`, name)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var rid int64
+		var pos int
+		if err := rows.Scan(&rid, &pos); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		r := &d.routes[routeIdx[rid]]
+		r.StageStarts = append(r.StageStarts, pos)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
