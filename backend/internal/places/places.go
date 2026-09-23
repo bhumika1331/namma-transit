@@ -20,7 +20,31 @@ type Geocoder interface {
 
 type entry struct {
 	lower string
+	tri   map[string]struct{}
 	place *transitv1.Place
+}
+
+// trigrams of a lowercased, padded string; used for typo-tolerant matching.
+func trigrams(s string) map[string]struct{} {
+	s = "  " + s + " "
+	out := make(map[string]struct{}, len(s))
+	for i := 0; i+3 <= len(s); i++ {
+		out[s[i:i+3]] = struct{}{}
+	}
+	return out
+}
+
+func similarity(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	n := 0
+	for t := range a {
+		if _, ok := b[t]; ok {
+			n++
+		}
+	}
+	return float64(n) / float64(len(a)+len(b)-n)
 }
 
 // Index is a read-only name index over the network's stops.
@@ -42,7 +66,8 @@ func New(n *network.Network, geo Geocoder) *Index {
 			continue
 		}
 		seen[key] = true
-		idx.entries = append(idx.entries, entry{lower: strings.ToLower(s.Name), place: ToPlace(s)})
+		lower := strings.ToLower(s.Name)
+		idx.entries = append(idx.entries, entry{lower: lower, tri: trigrams(lower), place: ToPlace(s)})
 	}
 	sort.Slice(idx.entries, func(i, j int) bool { return idx.entries[i].lower < idx.entries[j].lower })
 	return idx
@@ -72,8 +97,14 @@ func (idx *Index) Lookup(id string) (domain.StopID, bool) {
 	return s, ok
 }
 
-// Suggest ranks stops whose name starts with, then contains, the query.
-// Metro stations rank above bus stops on ties; shorter names first.
+// minFuzzy is the trigram similarity below which a stop is not offered.
+const minFuzzy = 0.34
+
+// Suggest ranks stops whose name starts with, then contains, then merely
+// resembles the query (trigram similarity, for "koramangla"). Metro
+// stations rank above bus stops on ties; shorter names first. When nothing
+// matches well and a geocoder is configured, its results are returned with
+// fromGeocoder=true.
 func (idx *Index) Suggest(ctx context.Context, query string, bias *domain.LatLng, limit int) ([]*transitv1.Place, bool, error) {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if limit <= 0 || limit > 10 {
@@ -83,12 +114,13 @@ func (idx *Index) Suggest(ctx context.Context, query string, bias *domain.LatLng
 		return nil, false, nil
 	}
 	type scored struct {
-		score int
+		score float64
 		p     *transitv1.Place
 	}
+	qt := trigrams(q)
 	var hits []scored
 	for _, e := range idx.entries {
-		score := 0
+		var score float64
 		switch {
 		case strings.HasPrefix(e.lower, q):
 			score = 3
@@ -97,7 +129,11 @@ func (idx *Index) Suggest(ctx context.Context, query string, bias *domain.LatLng
 		case strings.Contains(e.lower, q):
 			score = 1
 		default:
-			continue
+			if sim := similarity(qt, e.tri); sim >= minFuzzy {
+				score = sim // (0.34, 1)
+			} else {
+				continue
+			}
 		}
 		if e.place.Kind == transitv1.PlaceKind_PLACE_KIND_METRO_STATION {
 			score += 10
@@ -117,9 +153,17 @@ func (idx *Index) Suggest(ctx context.Context, query string, bias *domain.LatLng
 	for i, h := range hits {
 		out[i] = h.p
 	}
-	if len(out) == 0 && idx.geo != nil {
+	// Strong stop matches win; otherwise ask the geocoder for landmarks and
+	// localities ("Phoenix Mall", "Koramangala 5th Block").
+	strong := len(hits) > 0 && hits[0].score >= 1
+	if !strong && idx.geo != nil {
 		places, err := idx.geo.Suggest(ctx, query, bias, limit)
-		return places, true, err
+		if err == nil && len(places) > 0 {
+			return places, true, nil
+		}
+		if len(out) == 0 {
+			return nil, true, err
+		}
 	}
 	return out, false, nil
 }

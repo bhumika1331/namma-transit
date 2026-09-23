@@ -180,3 +180,14 @@ func keys(m map[transitv1.ItineraryKind]*transitv1.Itinerary) []string {
 	}
 	return out
 }
+
+func TestMergeWalks(t *testing.T) {
+	w := func(min int32) *transitv1.Leg {
+		return &transitv1.Leg{Mode: transitv1.LegMode_LEG_MODE_WALK, DurationMin: min, DistanceKm: 0.3}
+	}
+	ride := &transitv1.Leg{Mode: transitv1.LegMode_LEG_MODE_BUS}
+	got := mergeWalks([]*transitv1.Leg{w(7), w(4), ride, w(1), w(0)})
+	if len(got) != 3 || got[0].DurationMin != 11 || got[0].DistanceKm != 0.6 || got[2].DurationMin != 1 {
+		t.Fatalf("merged = %+v", got)
+	}
+}

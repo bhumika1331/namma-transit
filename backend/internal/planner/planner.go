@@ -140,6 +140,9 @@ func (p *Planner) Plan(ctx context.Context, req *transitv1.PlanTripRequest) (*tr
 func (p *Planner) resolve(loc *transitv1.Location) (domain.LatLng, error) {
 	switch ref := loc.GetRef().(type) {
 	case *transitv1.Location_PlaceId:
+		if pt, ok := places.ParseGeoPlaceID(ref.PlaceId); ok {
+			return pt, nil
+		}
 		id, ok := p.Places.Lookup(ref.PlaceId)
 		if !ok {
 			return domain.LatLng{}, fmt.Errorf("unknown place %q", ref.PlaceId)
@@ -268,6 +271,7 @@ func (p *Planner) itinerary(j raptor.Journey, dayStart time.Time, day domain.Day
 		it.Legs = append(it.Legs, leg)
 	}
 
+	it.Legs = mergeWalks(it.Legs)
 	it.Cost = toCost(total, party)
 	switch {
 	case buses == 0:
@@ -287,6 +291,24 @@ func (p *Planner) itinerary(j raptor.Journey, dayStart time.Time, day domain.Day
 	}
 	it.Id = fmt.Sprintf("%s|%d", journeyKey(j), j.Depart)
 	return it
+}
+
+// mergeWalks joins consecutive walking legs (access walk followed by a
+// footpath, or a footpath followed by the egress walk) into one.
+func mergeWalks(legs []*transitv1.Leg) []*transitv1.Leg {
+	out := make([]*transitv1.Leg, 0, len(legs))
+	for _, l := range legs {
+		if n := len(out); n > 0 && l.Mode == transitv1.LegMode_LEG_MODE_WALK && out[n-1].Mode == transitv1.LegMode_LEG_MODE_WALK {
+			prev := out[n-1]
+			prev.To = l.To
+			prev.Arrive = l.Arrive
+			prev.DurationMin += l.DurationMin
+			prev.DistanceKm = math.Round((prev.DistanceKm+l.DistanceKm)*10) / 10
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // placeOrPoint labels access/egress walks with the raw point on one side.

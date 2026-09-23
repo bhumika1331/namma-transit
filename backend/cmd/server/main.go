@@ -19,6 +19,7 @@ import (
 	"github.com/bhumika1331/namma-transit/backend/internal/network"
 	"github.com/bhumika1331/namma-transit/backend/internal/places"
 	"github.com/bhumika1331/namma-transit/backend/internal/planner"
+	"github.com/bhumika1331/namma-transit/backend/internal/store/sqlite"
 	"github.com/bhumika1331/namma-transit/backend/internal/timeprovider"
 )
 
@@ -29,13 +30,25 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	port := envOr("PORT", "8080")
+	// DATA_SOURCE selects where the network comes from: "gtfs" reads the
+	// community zips in GTFS_DIR; "sqlite" reads DB_PATH filled by loadgtfs
+	// or the scraper.
+	source := envOr("DATA_SOURCE", "gtfs")
 	gtfsDir := envOr("GTFS_DIR", "data/gtfs")
+	dbPath := envOr("DB_PATH", "data/transit.db")
 	var origins []string
 	if v := os.Getenv("ALLOWED_ORIGINS"); v != "" {
 		origins = strings.Split(v, ",")
 	}
 
-	net, err := loadNetwork(log, gtfsDir)
+	var net *network.Network
+	var err error
+	switch source {
+	case "sqlite":
+		net, err = loadFromSQLite(log, dbPath)
+	default:
+		net, err = loadNetwork(log, gtfsDir)
+	}
 	if err != nil {
 		log.Error("load network", "err", err)
 		os.Exit(1)
@@ -45,7 +58,14 @@ func main() {
 		log.Error("load fares", "err", err)
 		os.Exit(1)
 	}
-	idx := places.New(net, nil)
+	// Geocoder chain: Ola Maps when a key is configured (best Indian
+	// coverage), then keyless Photon (OpenStreetMap) as fallback.
+	var geo places.Chain
+	if key := os.Getenv("OLA_MAPS_API_KEY"); key != "" {
+		geo = append(geo, places.NewOlaMaps(key))
+	}
+	geo = append(geo, places.NewPhoton("namma-transit/"+version+" (personal project; github.com/bhumika1331/namma-transit)"))
+	idx := places.New(net, geo)
 	pl := planner.New(net, timeprovider.NewSchedule(), &fare.Engine{Tables: tables}, idx)
 
 	handler := api.NewHandler(api.Options{
@@ -88,6 +108,31 @@ func loadNetwork(log *slog.Logger, dir string) (*network.Network, error) {
 			return nil, err
 		}
 		log.Info("loaded feed", "name", name, "version", ds.Version(), "stops", len(ds.Stops()), "routes", len(ds.Routes()), "took", time.Since(start).Round(time.Millisecond))
+		sources = append(sources, ds)
+	}
+	return network.Build(sources, network.BuildOptions{})
+}
+
+// loadFromSQLite builds the network from every dataset in the store.
+func loadFromSQLite(log *slog.Logger, path string) (*network.Network, error) {
+	st, err := sqlite.Open(path, true)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	ctx := context.Background()
+	names, err := st.Datasets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var sources []network.Source
+	for _, name := range names {
+		start := time.Now()
+		ds, err := st.LoadDataset(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		log.Info("loaded dataset", "name", name, "source", ds.Source(), "version", ds.Version(), "stops", len(ds.Stops()), "routes", len(ds.Routes()), "took", time.Since(start).Round(time.Millisecond))
 		sources = append(sources, ds)
 	}
 	return network.Build(sources, network.BuildOptions{})
