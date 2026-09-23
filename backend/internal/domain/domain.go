@@ -3,7 +3,10 @@
 // fare engine and API consume them.
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // StopID is a compact index into Network.Stops.
 type StopID uint32
@@ -130,6 +133,24 @@ type Route struct {
 	Trips []Trip
 	// Headways describe frequency-based service used when Trips is empty.
 	Headways []Headway
+	// StageStarts lists stop positions (>= 1) where a new BMTC fare stage
+	// begins, derived from scraped fares. Empty means unknown: price by km.
+	StageStarts []int
+}
+
+// StagesBetween counts fare stages traversed boarding at position from and
+// alighting at to (from < to). Returns 0 when boundaries are unknown.
+func (r *Route) StagesBetween(from, to int) int {
+	if len(r.StageStarts) == 0 {
+		return 0
+	}
+	n := 1
+	for _, s := range r.StageStarts {
+		if s > from && s <= to {
+			n++
+		}
+	}
+	return n
 }
 
 // Trip is one scheduled run along a Route. Arr[i]/Dep[i] are the arrival at
@@ -167,4 +188,19 @@ type FareStageBoundary struct {
 type MetroSlab struct {
 	MaxKm     float64 // upper bound inclusive; last slab uses +Inf
 	FarePaise int32
+}
+
+// ClassFromRouteNumber infers the BMTC service class from the route number
+// prefix, since neither the feeds nor the API carry it explicitly.
+func ClassFromRouteNumber(short string) ServiceClass {
+	u := strings.ToUpper(strings.TrimSpace(short))
+	switch {
+	case strings.HasPrefix(u, "KIA"), strings.HasPrefix(u, "VAYU"):
+		return ClassVayuVajra
+	case strings.HasPrefix(u, "V-"):
+		return ClassVajra
+	case strings.HasPrefix(u, "MF-"), strings.HasPrefix(u, "MF "):
+		return ClassMetroFeeder
+	}
+	return ClassOrdinary
 }

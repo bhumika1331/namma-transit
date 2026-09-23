@@ -407,17 +407,7 @@ func (b *builder) finish(interchange int32) {
 	}
 }
 
-// ClassFromRouteNumber infers the BMTC service class from the route number
-// prefix, since the feeds do not carry it.
+// ClassFromRouteNumber is kept for callers; the logic lives in domain.
 func ClassFromRouteNumber(short string) domain.ServiceClass {
-	u := strings.ToUpper(strings.TrimSpace(short))
-	switch {
-	case strings.HasPrefix(u, "KIA"), strings.HasPrefix(u, "VAYU"):
-		return domain.ClassVayuVajra
-	case strings.HasPrefix(u, "V-"):
-		return domain.ClassVajra
-	case strings.HasPrefix(u, "MF-"), strings.HasPrefix(u, "MF "):
-		return domain.ClassMetroFeeder
-	}
-	return domain.ClassOrdinary
+	return domain.ClassFromRouteNumber(short)
 }
