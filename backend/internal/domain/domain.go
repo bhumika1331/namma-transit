@@ -13,9 +13,12 @@ type StopID uint32
 // of bus 500D are two RouteIDs.
 type RouteID uint32
 
-// Minutes since local midnight (IST). Values past 1440 mean "after midnight
+// Seconds since local midnight (IST). Values past 86400 mean "after midnight
 // of the service day", as GTFS does.
-type Minutes int32
+type Seconds int32
+
+// Minutes rounds up to whole minutes for display.
+func (s Seconds) Minutes() int32 { return int32((s + 59) / 60) }
 
 // Mode distinguishes rail from bus; walking is a footpath, not a route.
 type Mode uint8
@@ -66,6 +69,15 @@ const (
 	Saturday
 	Sunday
 )
+
+// DayMask is a set of DayKinds a trip runs on.
+type DayMask uint8
+
+// Bit returns the mask bit for a day kind.
+func (d DayKind) Bit() DayMask { return DayMask(1) << d }
+
+// Has reports whether the mask includes the day kind.
+func (m DayMask) Has(d DayKind) bool { return m&d.Bit() != 0 }
 
 // DayKindOf maps a local time to its timetable variant.
 func DayKindOf(t time.Time) DayKind {
@@ -120,19 +132,20 @@ type Route struct {
 	Headways []Headway
 }
 
-// Trip is one scheduled run along a Route. Times[i] is the departure from
-// Route.Stops[i]; len(Times) == len(Route.Stops).
+// Trip is one scheduled run along a Route. Arr[i]/Dep[i] are the arrival at
+// and departure from Route.Stops[i]; both have len(Route.Stops).
 type Trip struct {
-	Day   DayKind
-	Times []Minutes
+	Days DayMask
+	Arr  []Seconds
+	Dep  []Seconds
 }
 
 // Headway is a frequency window for a route direction.
 type Headway struct {
 	Day   DayKind
-	From  Minutes
-	To    Minutes
-	Every Minutes
+	From  Seconds
+	To    Seconds
+	Every Seconds
 }
 
 // Footpath is a walking connection between two stops, used for transfers
