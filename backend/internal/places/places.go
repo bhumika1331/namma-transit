@@ -1,0 +1,125 @@
+// Package places resolves free text to stops and stations. This first
+// version matches stop names; a later task adds fuzzy matching and an
+// external geocoder fallback behind the Geocoder interface.
+package places
+
+import (
+	"context"
+	"sort"
+	"strings"
+
+	transitv1 "github.com/bhumika1331/namma-transit/backend/gen/transit/v1"
+	"github.com/bhumika1331/namma-transit/backend/internal/domain"
+	"github.com/bhumika1331/namma-transit/backend/internal/network"
+)
+
+// Geocoder is the external fallback for names that are not stops.
+type Geocoder interface {
+	Suggest(ctx context.Context, query string, bias *domain.LatLng, limit int) ([]*transitv1.Place, error)
+}
+
+type entry struct {
+	lower string
+	place *transitv1.Place
+}
+
+// Index is a read-only name index over the network's stops.
+type Index struct {
+	entries []entry
+	byID    map[string]domain.StopID
+	geo     Geocoder // may be nil
+}
+
+// New builds the index. Stops sharing a name and kind collapse into one
+// suggestion (a metro station on two lines, a bus stop with two platforms).
+func New(n *network.Network, geo Geocoder) *Index {
+	idx := &Index{byID: make(map[string]domain.StopID, len(n.Stops)), geo: geo}
+	seen := map[string]bool{}
+	for _, s := range n.Stops {
+		idx.byID[s.SourceID] = s.ID
+		key := strings.ToLower(s.Name) + "|" + kindOf(s).String()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		idx.entries = append(idx.entries, entry{lower: strings.ToLower(s.Name), place: ToPlace(s)})
+	}
+	sort.Slice(idx.entries, func(i, j int) bool { return idx.entries[i].lower < idx.entries[j].lower })
+	return idx
+}
+
+func kindOf(s domain.Stop) transitv1.PlaceKind {
+	if s.Kind == domain.StopMetro {
+		return transitv1.PlaceKind_PLACE_KIND_METRO_STATION
+	}
+	return transitv1.PlaceKind_PLACE_KIND_BUS_STOP
+}
+
+// ToPlace converts a stop to its API representation.
+func ToPlace(s domain.Stop) *transitv1.Place {
+	return &transitv1.Place{
+		Id:       s.SourceID,
+		Name:     s.Name,
+		Kind:     kindOf(s),
+		Loc:      &transitv1.LatLng{Lat: s.Loc.Lat, Lng: s.Loc.Lng},
+		SubLabel: s.SubLabel,
+	}
+}
+
+// Lookup returns the stop for a place id.
+func (idx *Index) Lookup(id string) (domain.StopID, bool) {
+	s, ok := idx.byID[id]
+	return s, ok
+}
+
+// Suggest ranks stops whose name starts with, then contains, the query.
+// Metro stations rank above bus stops on ties; shorter names first.
+func (idx *Index) Suggest(ctx context.Context, query string, bias *domain.LatLng, limit int) ([]*transitv1.Place, bool, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if limit <= 0 || limit > 10 {
+		limit = 6
+	}
+	if len(q) < 2 {
+		return nil, false, nil
+	}
+	type scored struct {
+		score int
+		p     *transitv1.Place
+	}
+	var hits []scored
+	for _, e := range idx.entries {
+		score := 0
+		switch {
+		case strings.HasPrefix(e.lower, q):
+			score = 3
+		case strings.Contains(e.lower, " "+q):
+			score = 2
+		case strings.Contains(e.lower, q):
+			score = 1
+		default:
+			continue
+		}
+		if e.place.Kind == transitv1.PlaceKind_PLACE_KIND_METRO_STATION {
+			score += 10
+		}
+		hits = append(hits, scored{score, e.place})
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].score != hits[j].score {
+			return hits[i].score > hits[j].score
+		}
+		return len(hits[i].p.Name) < len(hits[j].p.Name)
+	})
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	out := make([]*transitv1.Place, len(hits))
+	for i, h := range hits {
+		out[i] = h.p
+	}
+	if len(out) == 0 && idx.geo != nil {
+		places, err := idx.geo.Suggest(ctx, query, bias, limit)
+		return places, true, err
+	}
+	return out, false, nil
+}
