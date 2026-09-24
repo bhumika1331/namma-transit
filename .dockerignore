@@ -1,0 +1,7 @@
+.git
+web/node_modules
+web/.next
+backend/data/gtfs/*.zip
+backend/data/*.db-wal
+backend/data/*.db-shm
+**/*.test
