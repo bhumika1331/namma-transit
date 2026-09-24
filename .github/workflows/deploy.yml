@@ -1,0 +1,46 @@
+# Builds the API image with the latest published database and deploys it to
+# Cloud Run. Needs repository secrets GCP_PROJECT, GCP_REGION (e.g.
+# asia-south1) and GCP_SA_KEY (a service account JSON with Cloud Run admin,
+# Artifact Registry writer and service account user roles).
+name: deploy
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [scrape]
+    types: [completed]
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch published database
+        run: |
+          mkdir -p backend/data
+          gh release download data --pattern transit.db --dir backend/data --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push
+        run: |
+          IMG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/namma-transit/api:${GITHUB_SHA::7}"
+          gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker build -f backend/Dockerfile --build-arg VERSION="${GITHUB_SHA::7}" -t "$IMG" .
+          docker push "$IMG"
+          echo "IMG=$IMG" >> "$GITHUB_ENV"
+      - name: Deploy
+        run: |
+          gcloud run deploy namma-transit-api \
+            --image "$IMG" --region "${{ secrets.GCP_REGION }}" --project "${{ secrets.GCP_PROJECT }}" \
+            --platform managed --allow-unauthenticated --min-instances 0 --max-instances 2 \
+            --memory 512Mi --cpu 1 --port 8080 \
+            --set-env-vars "ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
+            --set-secrets "OLA_MAPS_API_KEY=OLA_MAPS_API_KEY:latest" || \
+          gcloud run deploy namma-transit-api \
+            --image "$IMG" --region "${{ secrets.GCP_REGION }}" --project "${{ secrets.GCP_PROJECT }}" \
+            --platform managed --allow-unauthenticated --min-instances 0 --max-instances 2 \
+            --memory 512Mi --cpu 1 --port 8080 \
+            --set-env-vars "ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}"

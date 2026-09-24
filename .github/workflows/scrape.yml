@@ -1,0 +1,64 @@
+# Nightly core scrape and weekly sharded fare scrape of the Namma BMTC API.
+# The SQLite database is published as the "data" GitHub release asset; the
+# Cloud Run image build downloads it (see deploy.yml).
+name: scrape
+on:
+  schedule:
+    - cron: "30 20 * * *"     # 02:00 IST daily: core
+    - cron: "30 22 * * 6"     # Sunday 04:00 IST: fares
+  workflow_dispatch:
+    inputs:
+      job:
+        description: core | fares | gtfs
+        default: core
+      shard:
+        description: fares shard index/count
+        default: 0/1
+permissions:
+  contents: write
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Decide job
+        id: job
+        run: |
+          if [ -n "${{ inputs.job }}" ]; then echo "job=${{ inputs.job }}" >> "$GITHUB_OUTPUT";
+          elif [ "${{ github.event.schedule }}" = "30 22 * * 6" ]; then echo "job=fares" >> "$GITHUB_OUTPUT";
+          else echo "job=core" >> "$GITHUB_OUTPUT"; fi
+      - name: Restore previous database
+        working-directory: backend
+        run: |
+          mkdir -p data
+          gh release download data --pattern transit.db --dir data --clobber || echo "no previous release"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Bootstrap from community GTFS when no database exists
+        if: steps.job.outputs.job == 'gtfs' || hashFiles('backend/data/transit.db') == ''
+        working-directory: backend
+        run: |
+          mkdir -p data/gtfs
+          curl -fsSL -o data/gtfs/bmrcl.zip https://raw.githubusercontent.com/Vonter/bmrcl-gtfs/main/gtfs/bmrcl.zip
+          curl -fsSL -o data/gtfs/bmtc.zip https://raw.githubusercontent.com/Vonter/bmtc-gtfs/main/gtfs/bmtc.zip
+          go run ./cmd/loadgtfs -db data/transit.db -gtfs data/gtfs
+      - name: Scrape
+        if: steps.job.outputs.job != 'gtfs'
+        working-directory: backend
+        run: go run ./cmd/scraper -db data/transit.db -job "${{ steps.job.outputs.job }}" -shard "${{ inputs.shard || '0/1' }}" -rps 2
+      - name: Publish database
+        working-directory: backend
+        run: |
+          date -u +%Y%m%dT%H%M%SZ > data/VERSION
+          gh release view data >/dev/null 2>&1 || gh release create data --title "transit data" --notes "Rolling SQLite database built by the scrape workflow."
+          gh release upload data data/transit.db data/VERSION --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
