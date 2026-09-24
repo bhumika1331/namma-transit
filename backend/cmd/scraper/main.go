@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -14,13 +15,14 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/bhumika1331/namma-transit/backend/internal/scraper/bmrcl"
 	"github.com/bhumika1331/namma-transit/backend/internal/scraper/bmtc"
 	"github.com/bhumika1331/namma-transit/backend/internal/store/sqlite"
 )
 
 func main() {
 	dbPath := flag.String("db", "data/transit.db", "SQLite file")
-	job := flag.String("job", "core", "core | fares | all")
+	job := flag.String("job", "core", "core | fares | bmrcl | all")
 	base := flag.String("base", envOr("BMTC_BASE_URL", bmtc.DefaultBaseURL), "API base URL")
 	rps := flag.Float64("rps", 2, "requests per second")
 	only := flag.String("only", "", "comma-separated route number prefixes to limit the core job (testing)")
@@ -51,6 +53,17 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if *job == "bmrcl" || *job == "all" {
+		if err := runBMRCL(ctx, log, st); err != nil {
+			log.Error("bmrcl job", "err", err)
+			os.Exit(1)
+		}
+	}
+	defer func() {
+		if err := st.Finalize(context.Background()); err != nil {
+			log.Error("finalize", "err", err)
+		}
+	}()
 	if *job == "fares" || *job == "all" {
 		var sh bmtc.Shard
 		if _, err := fmtSscanf(*shard, &sh.Index, &sh.Count); err != nil {
@@ -111,6 +124,37 @@ func runFares(ctx context.Context, log *slog.Logger, st *sqlite.Store, sc *bmtc.
 		err = ferr
 	}
 	return err
+}
+
+// runBMRCL fetches the public station list, stores it, and logs stations
+// the loaded metro feed lacks (a signal that a line opened).
+func runBMRCL(ctx context.Context, log *slog.Logger, st *sqlite.Store) error {
+	runID, err := st.StartRun(ctx, "bmrcl")
+	if err != nil {
+		return err
+	}
+	stations, err := bmrcl.Fetch(ctx, bmrcl.DefaultURL, "namma-transit scraper (personal project; github.com/bhumika1331/namma-transit)")
+	if err != nil {
+		_ = st.FinishRun(ctx, runID, "failed", 1, 1, []string{err.Error()})
+		return err
+	}
+	b, _ := json.Marshal(stations)
+	if err := st.SetMeta(ctx, "bmrcl_stations", string(b)); err != nil {
+		return err
+	}
+	var notes []string
+	if ds, err := st.LoadDataset(ctx, "bmrcl"); err == nil && len(ds.Stops()) > 0 {
+		names := make([]string, 0, len(ds.Stops()))
+		for _, s := range ds.Stops() {
+			names = append(names, s.Name)
+		}
+		if missing := bmrcl.Missing(stations, names); len(missing) > 0 {
+			notes = append(notes, "stations on the public list but not in the feed: "+strings.Join(missing, "; "))
+			log.Warn("metro stations missing from feed", "count", len(missing), "names", missing)
+		}
+	}
+	log.Info("bmrcl done", "stations", len(stations))
+	return st.FinishRun(ctx, runID, "ok", 1, 0, notes)
 }
 
 // fareStore adapts sqlite.Store to bmtc.FareStore (record type differs).

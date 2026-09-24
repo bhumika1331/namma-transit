@@ -28,11 +28,13 @@ type Store struct {
 }
 
 // Open opens (creating if needed) the database and applies the schema.
-// readOnly opens with SQLite's read-only mode for the server.
+// readOnly opens the file as immutable: no locks, no journal, so it works
+// from a read-only container filesystem. Writers must call Finalize before
+// shipping a file that will be opened this way.
 func Open(path string, readOnly bool) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 	if readOnly {
-		dsn += "&mode=ro"
+		dsn = "file:" + path + "?mode=ro&immutable=1"
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -50,6 +52,20 @@ func Open(path string, readOnly bool) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// Finalize checkpoints the WAL and switches the file to rollback-journal
+// mode so it is a single self-contained file safe to copy and to open
+// immutable. Call it at the end of loadgtfs and scraper runs.
+func (s *Store) Finalize(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `PRAGMA journal_mode=DELETE`); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `VACUUM`)
+	return err
+}
 
 // DB exposes the handle for scraper repositories in this package's siblings.
 func (s *Store) DB() *sql.DB { return s.db }

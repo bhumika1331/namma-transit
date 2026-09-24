@@ -81,7 +81,10 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("footpaths %+v", ds.Footpaths())
 	}
 
-	// Read-only handle works for the server path.
+	if err := st.Finalize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Read-only immutable handle works for the server path.
 	ro, err := Open(path, true)
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +92,12 @@ func TestRoundTrip(t *testing.T) {
 	defer ro.Close()
 	if v, _ := ro.GetMeta(ctx, "version:toy"); v != "v7" {
 		t.Fatalf("meta = %q", v)
+	}
+	if ds2, err := ro.LoadDataset(ctx, "toy"); err != nil || len(ds2.Routes()) != 1 {
+		t.Fatalf("read-only load: %v", err)
+	}
+	if _, err := os.Stat(path + "-wal"); err == nil {
+		t.Fatal("finalize should remove the WAL file")
 	}
 }
 

@@ -51,4 +51,8 @@ func main() {
 		log.Error("meta", "err", err)
 		os.Exit(1)
 	}
+	if err := st.Finalize(ctx); err != nil {
+		log.Error("finalize", "err", err)
+		os.Exit(1)
+	}
 }
