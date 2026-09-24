@@ -1,5 +1,8 @@
 version: '3'
 
+vars:
+  DB: backend/data/transit.db
+
 tasks:
   gen:
     desc: Lint protos and regenerate Go + TypeScript code
@@ -7,14 +10,41 @@ tasks:
       - buf lint
       - buf generate
 
+  feeds:
+    desc: Download the community GTFS feeds (bootstrap / fallback data)
+    cmds:
+      - mkdir -p backend/data/gtfs
+      - curl -fsSL -o backend/data/gtfs/bmrcl.zip https://raw.githubusercontent.com/Vonter/bmrcl-gtfs/main/gtfs/bmrcl.zip
+      - curl -fsSL -o backend/data/gtfs/bmtc.zip https://raw.githubusercontent.com/Vonter/bmtc-gtfs/main/gtfs/bmtc.zip
+
+  db:
+    desc: Import the GTFS feeds into the SQLite store
+    dir: backend
+    cmds:
+      - go run ./cmd/loadgtfs -db data/transit.db -gtfs data/gtfs
+
+  scrape:
+    desc: 'Run a scraper job against the Namma BMTC API (JOB=core|fares|bmrcl|all)'
+    dir: backend
+    cmds:
+      - go run ./cmd/scraper -db data/transit.db -job {{.JOB | default "core"}} -shard {{.SHARD | default "0/1"}}
+
   dev:api:
-    desc: Run the Go Connect server on :8080
+    desc: Run the Go Connect server on :8080 from the GTFS zips
     dir: backend
     cmds:
       - go run ./cmd/server
 
+  dev:api:sqlite:
+    desc: Run the Go Connect server from the SQLite store
+    dir: backend
+    env:
+      DATA_SOURCE: sqlite
+    cmds:
+      - go run ./cmd/server
+
   dev:web:
-    desc: Run the Next.js dev server
+    desc: Run the Next.js dev server on :3000
     dir: web
     cmds:
       - npm run dev
@@ -26,7 +56,13 @@ tasks:
       - go test ./...
 
   lint:
-    desc: Lint protos and Go
+    desc: Lint protos, Go and web
     cmds:
       - buf lint
       - cd backend && go vet ./...
+      - cd web && npm run lint
+
+  image:
+    desc: Build the API container image (docker or podman)
+    cmds:
+      - docker build -f backend/Dockerfile --build-arg VERSION=$(git rev-parse --short HEAD) -t namma-transit-api .

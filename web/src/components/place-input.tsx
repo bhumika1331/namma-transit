@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { Place } from "@/gen/transit/v1/common_pb";
 import { PlaceKind } from "@/gen/transit/v1/common_pb";
 import { placeClient } from "@/lib/transport";
@@ -17,10 +17,6 @@ export function PlaceInput({ label, value, onChange }: Props) {
   const [options, setOptions] = useState<Place[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (value) setText(value.name);
-  }, [value]);
 
   function onInput(q: string) {
     setText(q);

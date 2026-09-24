@@ -191,3 +191,19 @@ func TestMergeWalks(t *testing.T) {
 		t.Fatalf("merged = %+v", got)
 	}
 }
+
+func TestDedupeVariants(t *testing.T) {
+	mk := func(route string, arriveMin int64) *transitv1.Itinerary {
+		return &transitv1.Itinerary{
+			Arrive: timestamppb.New(time.Unix(arriveMin*60, 0)),
+			Legs: []*transitv1.Leg{
+				{Mode: transitv1.LegMode_LEG_MODE_WALK},
+				{Mode: transitv1.LegMode_LEG_MODE_BUS, RouteShortName: route, From: &transitv1.Place{Name: "A"}, To: &transitv1.Place{Name: "B"}},
+			},
+		}
+	}
+	got := dedupe([]*transitv1.Itinerary{mk("500-D BELF-CSB", 20), mk("500-D", 10), mk("V-500D", 12)})
+	if len(got) != 2 || got[0].Legs[1].RouteShortName != "500-D" || got[1].Legs[1].RouteShortName != "V-500D" {
+		t.Fatalf("dedupe = %v", got)
+	}
+}

@@ -133,7 +133,7 @@ func (p *Planner) Plan(ctx context.Context, req *transitv1.PlanTripRequest) (*tr
 		resp.Warnings = append(resp.Warnings, "No bus or metro connection found for that time.")
 		return resp, nil
 	}
-	resp.Itineraries = rank(its, party.Total, int(req.GetMaxItineraries()))
+	resp.Itineraries = rank(dedupe(its), party.Total, int(req.GetMaxItineraries()))
 	return resp, nil
 }
 
@@ -383,6 +383,39 @@ func toProtoClass(c domain.ServiceClass) transitv1.ServiceClass {
 
 func timestampAt(dayStart time.Time, s domain.Seconds) *timestamppb.Timestamp {
 	return timestamppb.New(dayStart.Add(time.Duration(s) * time.Second))
+}
+
+// dedupe collapses itineraries that ride the same route numbers between the
+// same stops (BMTC publishes variants like "500-D" and "500-D BELF-CSB" as
+// separate routes), keeping the earliest-arriving one.
+func dedupe(its []*transitv1.Itinerary) []*transitv1.Itinerary {
+	best := map[string]*transitv1.Itinerary{}
+	var order []string
+	for _, it := range its {
+		var b strings.Builder
+		for _, l := range it.Legs {
+			if l.Mode == transitv1.LegMode_LEG_MODE_WALK {
+				continue
+			}
+			base, _, _ := strings.Cut(l.RouteShortName, " ")
+			fmt.Fprintf(&b, "%s|%s|%s;", base, l.GetFrom().GetName(), l.GetTo().GetName())
+		}
+		k := b.String()
+		cur, ok := best[k]
+		if !ok {
+			best[k] = it
+			order = append(order, k)
+			continue
+		}
+		if it.Arrive.AsTime().Before(cur.Arrive.AsTime()) {
+			best[k] = it
+		}
+	}
+	out := make([]*transitv1.Itinerary, 0, len(order))
+	for _, k := range order {
+		out = append(out, best[k])
+	}
+	return out
 }
 
 // rank orders itineraries by minutes plus rupees per head, tags the fastest
